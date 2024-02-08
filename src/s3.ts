@@ -6,6 +6,12 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import client, { BUCKET } from "./aws/s3.config";
+import { promises as fsPromises } from "fs";
+import dotenv from "dotenv";
+import { dirname } from "path";
+import { v4 as uuidv4 } from "uuid";
+
+dotenv.config();
 
 const doesObjectExist = async (key: string) => {
   try {
@@ -20,7 +26,6 @@ const doesObjectExist = async (key: string) => {
 
 export async function getObjUrl(key: string) {
   const isKeyValid: boolean = await doesObjectExist(key);
-
   if (!isKeyValid) return "";
 
   const command = new GetObjectCommand({
@@ -29,7 +34,6 @@ export async function getObjUrl(key: string) {
   });
 
   const url: string = await getSignedUrl(client, command);
-
   return url;
 }
 
@@ -52,24 +56,27 @@ export async function deleteObj(key: string) {
   await client.send(command);
 }
 
-export const isValidMediaType = (value: any) => {
-  return ["IMAGE", "VIDEO", "AUDIO", "TEXT"].includes(value);
-};
+export async function downloadDocumentInTemporaryFolder(key: string) {
+  const command = new GetObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+  });
 
-export async function generateMediaDetails(mediaDetails: any) {
-  const fileType = mediaDetails.mimeType.split("/")[0]?.toUpperCase();
-  const fileExtension = mediaDetails.mimeType.split("/")[1];
-  const isValid = isValidMediaType(fileType);
-  let contentType, content, mediaUrl;
-  if (isValid) {
-    contentType = fileType;
-  } else {
-    contentType = "OTHER";
+  try {
+    const response = await client.send(command);
+    if (response.Body) {
+      const filePath = `./tempFolder/sample-${uuidv4()}.pdf`;
+      const directoryPath = dirname(filePath);
+
+      await fsPromises.mkdir(directoryPath, { recursive: true });
+
+      const byteArray = await response.Body?.transformToByteArray();
+      await fsPromises.writeFile(filePath, Buffer.from(byteArray));
+
+      console.log("PDF file has been successfully created:", filePath);
+      return filePath;
+    }
+  } catch (err) {
+    console.error(err);
   }
-
-  const key = `${fileType.toLowerCase()}/${Date.now()}.${fileExtension}`;
-  content = key;
-  mediaUrl = await putObjUrl(key, mediaDetails.mimeType);
-
-  return { mediaUrl, content, contentType };
 }

@@ -3,23 +3,19 @@ import db from "../models/index";
 import multerS3 from "multer-s3";
 import multer from "multer";
 import s3Client from "../aws/s3.config";
+import { v4 as uuidv4 } from "uuid";
+import { downloadDocumentInTemporaryFolder } from "../s3";
+import { Coordinate } from "../types";
+import { addSignaturesToPDF } from "../utils/pdf";
 
 const { DocumentToSign, DocumentCoordinates } = db;
-
-type Coordinate = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  page: number;
-};
 
 const upload = multer({
   storage: multerS3({
     s3: s3Client,
     bucket: "shopbot-aws-bucket",
     key: function (req: Request, file: any, cb: any) {
-      cb(null, `documents/${file?.originalname}`);
+      cb(null, `documents/${uuidv4()}-${file?.originalname}`);
     },
   }),
 });
@@ -55,15 +51,14 @@ const getDocuments = async (req: Request, res: Response) => {
 };
 
 const createDocument = async (req: Request, res: Response) => {
-  const transaction = await DocumentToSign.sequelize.transaction();
-  try {
-    uploadMiddleware(req, res, async (err: any) => {
-      if (err) {
-        console.log(err);
-        await transaction.rollback();
-        return res.status(500).json({ error: "Error uploading file to S3" });
-      }
+  uploadMiddleware(req, res, async (err: any) => {
+    if (err) {
+      console.log(err);
+      return res.status(500).json({ error: "Error uploading file to S3" });
+    }
 
+    const transaction = await DocumentToSign.sequelize.transaction();
+    try {
       const { key } = req.file as any;
 
       const document = await DocumentToSign.create(
@@ -85,12 +80,12 @@ const createDocument = async (req: Request, res: Response) => {
       await transaction.commit();
 
       return res.status(200).json({ message: "File uploaded successfully" });
-    });
-  } catch (error) {
-    await transaction.rollback();
-    console.error("Error uploading file:", error);
-    return res.status(500).json({ error: "Internal server error" });
-  }
+    } catch (error) {
+      await transaction.rollback();
+      console.error("Error uploading file:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  });
 };
 
 const signDocument = async (req: Request, res: Response) => {
@@ -98,12 +93,31 @@ const signDocument = async (req: Request, res: Response) => {
     const body = req.body;
     const documentId = body.id;
 
+    console.log(req.body);
+    console.log(req.file);
     const document = await DocumentToSign.findOne({
       where: { id: documentId },
     });
+
     if (!document) {
       return res.status(404).json({ message: "File not found!" });
     }
+
+    const { s3Key } = document;
+
+    console.log(s3Key);
+
+    const coordinates: Coordinate[] = await DocumentCoordinates.findAll({
+      where: { id: documentId },
+    });
+
+    const filePath = await downloadDocumentInTemporaryFolder(s3Key);
+
+    if (!filePath) {
+      return res.status(400).json({ message: "File not found!" });
+    }
+
+    await addSignaturesToPDF(filePath, "", coordinates);
   } catch (error) {
     console.log(error);
     res.status(500).json({ message: "Internal Server Error!" });

@@ -7,11 +7,8 @@ import {
 
 const router: Router = express.Router();
 
-router.route("/").get(getDocuments).post(createDocument);
+router.route("/list").get(getDocuments);
+router.route("/upload").post(createDocument);
 router.route("/sign").post(signDocument);
-// router
-//   .route("/:id")
-//   .get(getDocument)
-//   .put(upload.single("image"));
 
 export default router;

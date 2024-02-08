@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-export const BUCKET = "chatwatch-storage";
+export const BUCKET = "shopbot-aws-bucket";
 const client = new S3Client({
   region: "eu-north-1",
   credentials: {
